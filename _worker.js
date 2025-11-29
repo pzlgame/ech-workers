@@ -1,42 +1,32 @@
-const WS_READY_STATE_OPEN = 1;
-const CF_FALLBACK_IPS = ['210.61.97.241:81', '123.253.111.194:52888', '61.220.128.226:43', '125.135.43.66:50000', '211.48.77.114:12312', '59.3.3.161:8443'];
-
-const encoder = new TextEncoder();
-
 import { connect } from 'cloudflare:sockets';
+
+const CF_FALLBACK_IPS = ['tw.william.us.ci'];
+const TOKEN = 'abcd1234';
+const encoder = new TextEncoder();
 
 export default {
     async fetch(request) {
         try {
-            const token = '';
             const upgradeHeader = request.headers.get('Upgrade');
-
             if (!upgradeHeader || upgradeHeader.toLowerCase() !== 'websocket') {
                 return new URL(request.url).pathname === '/'
                     ? new Response('WebSocket Proxy Server', { status: 200 })
                     : new Response('Expected WebSocket', { status: 426 });
             }
-
-            if (token && request.headers.get('Sec-WebSocket-Protocol') !== token) {
+            if (TOKEN && request.headers.get('Sec-WebSocket-Protocol') !== TOKEN) {
                 return new Response('Unauthorized', { status: 401 });
             }
-
             const [client, server] = Object.values(new WebSocketPair());
             server.accept();
-
             handleSession(server).catch(() => safeCloseWebSocket(server));
-
             const responseInit = {
                 status: 101,
                 webSocket: client
             };
-
-            if (token) {
-                responseInit.headers = { 'Sec-WebSocket-Protocol': token };
+            if (TOKEN) {
+                responseInit.headers = { 'Sec-WebSocket-Protocol': TOKEN };
             }
-
             return new Response(null, responseInit);
-
         } catch (err) {
             return new Response(err.toString(), { status: 500 });
         }
@@ -46,26 +36,21 @@ export default {
 async function handleSession(webSocket) {
     let remoteSocket, remoteWriter, remoteReader;
     let isClosed = false;
-
     const cleanup = () => {
         if (isClosed) return;
         isClosed = true;
-
         try { remoteWriter?.releaseLock(); } catch { }
         try { remoteReader?.releaseLock(); } catch { }
         try { remoteSocket?.close(); } catch { }
-
         remoteWriter = remoteReader = remoteSocket = null;
         safeCloseWebSocket(webSocket);
     };
-
     const pumpRemoteToWebSocket = async () => {
         try {
             while (!isClosed && remoteReader) {
                 const { done, value } = await remoteReader.read();
-
                 if (done) break;
-                if (webSocket.readyState !== WS_READY_STATE_OPEN) break;
+                if (webSocket.readyState !== 1) break;
                 if (value?.byteLength > 0) webSocket.send(value);
             }
         } catch { }
@@ -75,7 +60,6 @@ async function handleSession(webSocket) {
             cleanup();
         }
     };
-
     const parseAddress = (addr) => {
         if (addr[0] === '[') {
             const end = addr.indexOf(']');
@@ -85,77 +69,68 @@ async function handleSession(webSocket) {
             };
         }
         const sep = addr.lastIndexOf(':');
-        if (sep === -1 || sep === addr.length - 1) {
-            return { host: addr, port: 443 };
-        }
         return {
             host: addr.substring(0, sep),
             port: parseInt(addr.substring(sep + 1), 10)
         };
     };
-
     const isCFError = (err) => {
         const msg = err?.message?.toLowerCase() || '';
         return msg.includes('proxy request') ||
             msg.includes('cannot connect') ||
             msg.includes('cloudflare');
     };
-
     const connectToRemote = async (targetAddr, firstFrameData) => {
-        const { host: targetHost, port: targetPort } = parseAddress(targetAddr);
+        const original = parseAddress(targetAddr);
         const attempts = [null, ...CF_FALLBACK_IPS];
-
         for (let i = 0; i < attempts.length; i++) {
-            let connHost = targetHost;
-            let connPort = targetPort;
-
-            if (i > 0) {
-                const fallbackAddr = attempts[i];
-                const { host: fallbackHost, port: fallbackPort } = parseAddress(fallbackAddr);
-                connHost = fallbackHost;
-                connPort = fallbackPort || targetPort;
+            let attemptHost = original.host;
+            let attemptPort = original.port;
+            if (attempts[i] !== null) {
+                const fallback = attempts[i];
+                try {
+                    const parsed = parseAddress(fallback);
+                    if (!isNaN(parsed.port)) {
+                        attemptHost = parsed.host;
+                        attemptPort = parsed.port;
+                    } else {
+                        attemptHost = fallback;
+                        attemptPort = 443;
+                    }
+                } catch {
+                    attemptHost = fallback;
+                    attemptPort = 443;
+                }
             }
-
-            if (!connPort) throw new Error('Target address must include port.');
-
             try {
                 remoteSocket = connect({
-                    hostname: connHost,
-                    port: connPort
+                    hostname: attemptHost,
+                    port: attemptPort
                 });
-
                 if (remoteSocket.opened) await remoteSocket.opened;
-
                 remoteWriter = remoteSocket.writable.getWriter();
                 remoteReader = remoteSocket.readable.getReader();
-
                 if (firstFrameData) {
                     await remoteWriter.write(encoder.encode(firstFrameData));
                 }
-
                 webSocket.send('CONNECTED');
                 pumpRemoteToWebSocket();
                 return;
-
             } catch (err) {
                 try { remoteWriter?.releaseLock(); } catch { }
                 try { remoteReader?.releaseLock(); } catch { }
                 try { remoteSocket?.close(); } catch { }
                 remoteWriter = remoteReader = remoteSocket = null;
-
                 if (!isCFError(err) || i === attempts.length - 1) {
                     throw err;
                 }
             }
         }
     };
-
     webSocket.addEventListener('message', async (event) => {
         if (isClosed) return;
-
         try {
             const data = event.data;
-
             if (typeof data === 'string') {
                 if (data.startsWith('CONNECT:')) {
                     const sep = data.indexOf('|', 8);
@@ -181,14 +156,13 @@ async function handleSession(webSocket) {
             cleanup();
         }
     });
-
     webSocket.addEventListener('close', cleanup);
     webSocket.addEventListener('error', cleanup);
 }
 
 function safeCloseWebSocket(ws) {
     try {
-        if (ws.readyState === WS_READY_STATE_OPEN) {
+        if (ws.readyState === 1 || ws.readyState === 2) {
             ws.close(1000, 'Server closed');
         }
     } catch { }
