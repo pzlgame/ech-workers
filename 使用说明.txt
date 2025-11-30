@@ -1,6 +1,3 @@
-编译
-go build -ldflags="-s -w" -o ech-win.exe ech-workers.go
-
 Usage of ech-win:
   -dns string
         ECH 查询 DNS 服务器 (default "119.29.29.29:53")
