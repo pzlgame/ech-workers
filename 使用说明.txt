@@ -1,4 +1,7 @@
-Usage of ech-workers:
+编译
+go build -ldflags="-s -w" -o ech-win.exe ech-workers.go
+
+Usage of ech-win:
   -dns string
         ECH 查询 DNS 服务器 (default "119.29.29.29:53")
   -ech string
@@ -8,7 +11,9 @@ Usage of ech-workers:
   -ip string
         指定服务端 IP（绕过 DNS 解析）
   -l string
-        SOCKS5 监听地址 (格式: [user:pass@]ip:port) (default "127.0.0.1:30000")
+        代理监听地址 (支持 SOCKS5 和 HTTP) (default "127.0.0.1:30000")
+  -pyip string
+        代理服务器 IP（用于 Worker 连接回退）
   -token string
         身份验证令牌
 

@@ -1,6 +1,5 @@
 import { connect } from 'cloudflare:sockets';
 
-const CF_FALLBACK_IPS = ['tw.william.us.ci'];
 const TOKEN = 'xxx';
 const encoder = new TextEncoder();
 
@@ -80,12 +79,22 @@ async function handleSession(webSocket) {
             msg.includes('cannot connect') ||
             msg.includes('cloudflare');
     };
-    const connectToRemote = async (targetAddr, firstFrameData) => {
+    const connectToRemote = async (targetAddr, firstFrameData, proxyIP) => {
         const original = parseAddress(targetAddr);
-        const attempts = [null, ...CF_FALLBACK_IPS];
+        
+        // 构建回退 IP 列表
+        const fallbackIPs = [];
+        if (proxyIP) {
+            // 如果客户端提供了代理 IP，添加到回退列表
+            fallbackIPs.push(proxyIP);
+        }
+        
+        const attempts = [null, ...fallbackIPs];
+        
         for (let i = 0; i < attempts.length; i++) {
             let attemptHost = original.host;
             let attemptPort = original.port;
+            
             if (attempts[i] !== null) {
                 const fallback = attempts[i];
                 try {
@@ -102,6 +111,7 @@ async function handleSession(webSocket) {
                     attemptPort = 443;
                 }
             }
+            
             try {
                 remoteSocket = connect({
                     hostname: attemptHost,
@@ -133,11 +143,12 @@ async function handleSession(webSocket) {
             const data = event.data;
             if (typeof data === 'string') {
                 if (data.startsWith('CONNECT:')) {
-                    const sep = data.indexOf('|', 8);
-                    await connectToRemote(
-                        data.substring(8, sep),
-                        data.substring(sep + 1)
-                    );
+                    const parts = data.split('|');
+                    const targetAddr = parts[0].substring(8); // 去掉 "CONNECT:"
+                    const firstFrameData = parts[1] || '';
+                    const proxyIP = parts[2] || ''; // 第三个部分是可选的代理 IP
+                    
+                    await connectToRemote(targetAddr, firstFrameData, proxyIP);
                 }
                 else if (data.startsWith('DATA:')) {
                     if (remoteWriter) {
