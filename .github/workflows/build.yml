@@ -4,11 +4,6 @@ on:
   push:
     branches: [main]
     tags: ['v*']
-    paths:
-      - 'ech-workers.go'
-  pull_request:
-    paths:
-      - 'ech-workers.go'
   workflow_dispatch:
 
 jobs:
