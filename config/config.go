@@ -28,7 +28,11 @@ func (c *Config) Validate() error {
 		// 如果没有端口，添加默认端口
 		if strings.Contains(c.ListenAddr, ":") {
 			// IPv6 地址
-			c.ListenAddr = "[" + c.ListenAddr + "]:30000"
+			if strings.Contains(c.ListenAddr, "[") {
+				c.ListenAddr = c.ListenAddr + ":30000"
+			} else {
+				c.ListenAddr = "[" + c.ListenAddr + "]:30000"
+			}
 		} else {
 			c.ListenAddr = c.ListenAddr + ":30000"
 		}
